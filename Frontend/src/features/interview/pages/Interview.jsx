@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import '../style/interview.scss'
 import { useInterview } from '../hooks/useInterview.js'
-import { useNavigate, useParams } from 'react-router'
-
-
+import { useNavigate, useParams, Link } from 'react-router'
 
 const NAV_ITEMS = [
     { id: 'technical', label: 'Technical Questions', icon: (<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>) },
@@ -26,11 +24,11 @@ const QuestionCard = ({ item, index }) => {
             {open && (
                 <div className='q-card__body'>
                     <div className='q-card__section'>
-                        <span className='q-card__tag q-card__tag--intention'>Intention</span>
+                        <span className='q-card__tag q-card__tag--intention'>Interviewer Intention</span>
                         <p>{item.intention}</p>
                     </div>
                     <div className='q-card__section'>
-                        <span className='q-card__tag q-card__tag--answer'>Model Answer</span>
+                        <span className='q-card__tag q-card__tag--answer'>Model Answer Strategy</span>
                         <p>{item.answer}</p>
                     </div>
                 </div>
@@ -68,12 +66,13 @@ const Interview = () => {
         }
     }, [ interviewId ])
 
-
-
     if (loading || !report) {
         return (
             <main className='loading-screen'>
-                <h1>Loading your interview plan...</h1>
+                <div className='loading-card'>
+                    <h2 className='loading-title'>Loading Strategy Plan</h2>
+                    <p className='loading-subtitle'>Fetching saved report from MongoDB...</p>
+                </div>
             </main>
         )
     }
@@ -82,9 +81,21 @@ const Interview = () => {
         report.matchScore >= 80 ? 'score--high' :
             report.matchScore >= 60 ? 'score--mid' : 'score--low'
 
-
     return (
         <div className='interview-page'>
+            <header className='report-header-bar'>
+                <div className='header-left'>
+                    <Link to="/" className='back-link'>
+                        &larr; CV Studio
+                    </Link>
+                    <span className='header-sep'>/</span>
+                    <h1 className='report-main-title'>{report.title || "Interview Strategy Plan"}</h1>
+                </div>
+                <div className='header-right'>
+                    <span className='saved-indicator'>Saved to MongoDB</span>
+                </div>
+            </header>
+
             <div className='interview-layout'>
 
                 {/* ── Left Nav ── */}

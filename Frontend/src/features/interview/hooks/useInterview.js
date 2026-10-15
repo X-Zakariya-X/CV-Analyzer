@@ -17,31 +17,36 @@ export const useInterview = () => {
 
     const generateReport = async ({ jobDescription, selfDescription, resumeFile }) => {
         setLoading(true)
-        let response = null
         try {
-            response = await generateInterviewReport({ jobDescription, selfDescription, resumeFile })
-            setReport(response.interviewReport)
+            const response = await generateInterviewReport({ jobDescription, selfDescription, resumeFile })
+            if (response && response.interviewReport) {
+                setReport(response.interviewReport)
+                return response.interviewReport
+            }
+            throw new Error("Invalid response received from server")
         } catch (error) {
-            console.log(error)
+            console.error("Error generating report:", error)
+            throw error
         } finally {
             setLoading(false)
         }
-
-        return response.interviewReport
     }
 
     const getReportById = async (interviewId) => {
         setLoading(true)
-        let response = null
         try {
-            response = await getInterviewReportById(interviewId)
-            setReport(response.interviewReport)
+            const response = await getInterviewReportById(interviewId)
+            if (response && response.interviewReport) {
+                setReport(response.interviewReport)
+                return response.interviewReport
+            }
+            throw new Error("Report not found")
         } catch (error) {
-            console.log(error)
+            console.error("Error fetching report:", error)
+            throw error
         } finally {
             setLoading(false)
         }
-        return response.interviewReport
     }
 
     const getReports = async () => {

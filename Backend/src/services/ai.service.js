@@ -32,17 +32,49 @@ const interviewReportSchema = z.object({
     title: z.string().describe("The title of the job for which the interview report is generated"),
 })
 
+const CANDIDATE_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-3-flash-preview"
+]
+
+async function generateContentWithRetry(requestOptions, maxRetries = 2) {
+    let lastError = null
+
+    for (const model of CANDIDATE_MODELS) {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await ai.models.generateContent({
+                    ...requestOptions,
+                    model
+                })
+                return response
+            } catch (err) {
+                lastError = err
+                const status = err.status || err.code || (err.error && err.error.code)
+                const isRetryable = status === 503 || status === 429 || status === 500
+                console.warn(`[AI Service] Model ${model} attempt ${attempt + 1} failed: ${status || err.message}`)
+                
+                if (isRetryable && attempt < maxRetries) {
+                    await new Promise(r => setTimeout(r, (attempt + 1) * 1500))
+                    continue
+                }
+                break
+            }
+        }
+    }
+
+    throw lastError || new Error("All AI models are currently busy or unavailable. Please try again in a few moments.")
+}
+
 async function generateInterviewReport({ resume, selfDescription, jobDescription }) {
-
-
     const prompt = `Generate an interview report for a candidate with the following details:
-                        Resume: ${resume}
-                        Self Description: ${selfDescription}
+                        Resume: ${resume || "Not provided"}
+                        Self Description: ${selfDescription || "Not provided"}
                         Job Description: ${jobDescription}
 `
 
-    const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+    const response = await generateContentWithRetry({
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -51,14 +83,30 @@ async function generateInterviewReport({ resume, selfDescription, jobDescription
     })
 
     return JSON.parse(response.text)
-
-
 }
 
 
 
+const fs = require("fs")
+
 async function generatePdfFromHtml(htmlContent) {
-    const browser = await puppeteer.launch()
+    const launchOptions = {
+        headless: "new",
+        args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    }
+    const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+    const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH
+    } else if (process.platform === "win32") {
+        if (fs.existsSync(edgePath)) {
+            launchOptions.executablePath = edgePath
+        } else if (fs.existsSync(chromePath)) {
+            launchOptions.executablePath = chromePath
+        }
+    }
+
+    const browser = await puppeteer.launch(launchOptions)
     const page = await browser.newPage();
     await page.setContent(htmlContent, { waitUntil: "networkidle0" })
 
@@ -95,8 +143,7 @@ async function generateResumePdf({ resume, selfDescription, jobDescription }) {
                         The resume should not be so lengthy, it should ideally be 1-2 pages long when converted to PDF. Focus on quality rather than quantity and make sure to include all the relevant information that can increase the candidate's chances of getting an interview call for the given job description.
                     `
 
-    const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+    const response = await generateContentWithRetry({
         contents: prompt,
         config: {
             responseMimeType: "application/json",

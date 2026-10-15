@@ -1,0 +1,9 @@
+{
+  "name": "cv-studio-fullstack",
+  "version": "1.0.0",
+  "description": "AI-powered resume analysis and interview strategy preparation",
+  "scripts": {
+    "build": "npm --prefix Frontend install && npm --prefix Frontend run build && npm --prefix Backend install",
+    "start": "node Backend/server.js"
+  }
+}

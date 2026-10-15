@@ -1,20 +1,42 @@
 @use "./style/button.scss";
 
+:root {
+    --bg-page: #FAF9F6;
+    --bg-surface: #FFFFFF;
+    --bg-subtle: #F4F3EF;
+    --border-light: #E7E5E4;
+    --border-dark: #18181B;
+    --text-primary: #18181B;
+    --text-secondary: #52525B;
+    --text-muted: #71717A;
+    --accent: #18181B;
+    --font-serif: 'Playfair Display', 'Newsreader', Georgia, serif;
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
 * {
-    margin: 0%;
-    padding: 0%;
+    margin: 0;
+    padding: 0;
     box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
 }
 
 html,
 body,
 #root {
     width: 100%;
-    background-color: #161616;
-    color: whitesmoke;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    min-height: 100vh;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
-.highlight{
-    color: #d20d3b;
+.highlight {
+    font-style: italic;
+    font-family: var(--font-serif);
 }
