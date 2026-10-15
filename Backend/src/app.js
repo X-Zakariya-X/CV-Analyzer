@@ -34,8 +34,13 @@ app.use("/api/interview", interviewRouter)
 /* serve static frontend files if built */
 const path = require("path")
 const fs = require("fs")
-const frontendDistPath = path.join(__dirname, "../../Frontend/dist")
-if (fs.existsSync(frontendDistPath)) {
+const possibleDistPaths = [
+    path.join(__dirname, "../../Frontend/dist"),
+    path.join(process.cwd(), "Frontend/dist"),
+    path.join(process.cwd(), "../Frontend/dist")
+]
+const frontendDistPath = possibleDistPaths.find(p => fs.existsSync(p))
+if (frontendDistPath) {
     app.use(express.static(frontendDistPath))
     app.get("*", (req, res, next) => {
         if (req.path.startsWith("/api/")) {
