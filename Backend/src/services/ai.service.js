@@ -1,65 +1,90 @@
+const path = require("path")
+require("dotenv").config({ path: path.join(__dirname, "../../../.env") })
+require("dotenv").config({ path: path.join(__dirname, "../../.env") })
+require("dotenv").config()
+
 const { GoogleGenAI } = require("@google/genai")
 const { z } = require("zod")
 const { zodToJsonSchema } = require("zod-to-json-schema")
-const puppeteer = require("puppeteer")
+const fs = require("fs")
 
-const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY || "dummy_key"
-const ai = new GoogleGenAI({
-    apiKey
-})
+let puppeteer = null
+function getPuppeteer() {
+    if (!puppeteer) {
+        puppeteer = require("puppeteer")
+    }
+    return puppeteer
+}
 
+function getAiClient() {
+    const key = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY
+    if (!key) {
+        throw new Error("Missing GOOGLE_GENAI_API_KEY or GEMINI_API_KEY environment variable.")
+    }
+    return new GoogleGenAI({ apiKey: key })
+}
+
+
+// ── Zod Schema (sent to Gemini as responseSchema so it returns structured JSON) ──
 
 const interviewReportSchema = z.object({
-    matchScore: z.number().describe("A score between 0 and 100 indicating how well the candidate's profile matches the job describe"),
+    matchScore: z.number().describe("A score between 0 and 100 indicating how well the candidate's profile matches the job description"),
     technicalQuestions: z.array(z.object({
-        question: z.string().describe("The technical question can be asked in the interview"),
-        intention: z.string().describe("The intention of interviewer behind asking this question"),
-        answer: z.string().describe("How to answer this question, what points to cover, what approach to take etc.")
-    })).describe("Technical questions that can be asked in the interview along with their intention and how to answer them"),
+        question: z.string().describe("A technical interview question tailored to the job description"),
+        intention: z.string().describe("Why an interviewer would ask this question"),
+        answer: z.string().describe("How the candidate should answer — key points, approach, and what to cover")
+    })).describe("3 to 5 technical interview questions specific to the role, tech stack, and seniority level"),
     behavioralQuestions: z.array(z.object({
-        question: z.string().describe("The technical question can be asked in the interview"),
-        intention: z.string().describe("The intention of interviewer behind asking this question"),
-        answer: z.string().describe("How to answer this question, what points to cover, what approach to take etc.")
-    })).describe("Behavioral questions that can be asked in the interview along with their intention and how to answer them"),
+        question: z.string().describe("A behavioral interview question"),
+        intention: z.string().describe("What the interviewer is evaluating with this question"),
+        answer: z.string().describe("How to answer using the STAR method — key points and structure")
+    })).describe("2 to 3 behavioral interview questions relevant to the role"),
     skillGaps: z.array(z.object({
-        skill: z.string().describe("The skill which the candidate is lacking"),
-        severity: z.enum(["low", "medium", "high"]).describe("The severity of this skill gap, i.e. how important is this skill for the job and how much it can impact the candidate's chances")
-    })).describe("List of skill gaps in the candidate's profile along with their severity"),
+        skill: z.string().describe("A skill from the job description that the candidate appears to lack"),
+        severity: z.enum(["low", "medium", "high"]).describe("How critical this gap is for the role")
+    })).describe("List of skill gaps between the candidate's profile and the job requirements"),
     preparationPlan: z.array(z.object({
-        day: z.number().describe("The day number in the preparation plan, starting from 1"),
-        focus: z.string().describe("The main focus of this day in the preparation plan, e.g. data structures, system design, mock interviews etc."),
-        tasks: z.array(z.string()).describe("List of tasks to be done on this day to follow the preparation plan, e.g. read a specific book or article, solve a set of problems, watch a video etc.")
-    })).describe("A day-wise preparation plan for the candidate to follow in order to prepare for the interview effectively"),
-    title: z.string().describe("The title of the job for which the interview report is generated"),
+        day: z.number().describe("The day number, strictly from 1 to 5"),
+        focus: z.string().describe("The main theme or focus area for this day, tailored to the specific role"),
+        tasks: z.array(z.string()).describe("2 to 4 concrete, actionable tasks for this day")
+    })).describe("A 5-day interview preparation plan (Day 1 through Day 5). Each day MUST have a unique focus area tailored to the specific role, tech stack, and skill gaps. Do NOT use generic plans."),
+    title: z.string().describe("The job title extracted from the job description"),
 })
 
+
+// ── Model list & retry logic ─────────────────────────────────────────────────
+
 const CANDIDATE_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash"
+    "gemini-3.1-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest"
 ]
 
-function withTimeout(promise, ms = 15000) {
+function withTimeout(promise, ms = 30000) {
     return Promise.race([
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error(`AI generation timed out after ${ms / 1000}s`)), ms))
     ])
 }
 
-async function generateContentWithRetry(requestOptions, maxRetries = 1) {
+async function generateContentWithRetry(requestOptions, maxRetries = 2) {
     let lastError = null
 
     for (const model of CANDIDATE_MODELS) {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
+                const ai = getAiClient()
                 const response = await withTimeout(
                     ai.models.generateContent({
                         ...requestOptions,
                         model
                     }),
-                    15000
+                    30000
                 )
                 if (response && response.text) {
+                    console.log(`[AI Service] Successfully generated with model: ${model}`)
                     return response
                 }
             } catch (err) {
@@ -67,140 +92,89 @@ async function generateContentWithRetry(requestOptions, maxRetries = 1) {
                 const status = err.status || err.code || (err.error && err.error.code)
                 console.warn(`[AI Service] Model ${model} attempt ${attempt + 1} failed: ${status || err.message}`)
 
-                // If it's a network/fetch failure or authentication error, don't keep hammering with long timeouts
-                if (err.message?.includes("fetch failed") || err.message?.includes("API key")) {
+                // Don't retry on auth errors
+                if (err.message?.includes("API key")) {
+                    throw err
+                }
+
+                // Don't retry on 404 (model not found) — move to next model
+                if (status === 404) {
                     break
                 }
 
                 if (attempt < maxRetries) {
-                    await new Promise(r => setTimeout(r, 1000))
+                    await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
                 }
             }
         }
     }
 
-    throw lastError || new Error("AI service unavailable.")
+    throw lastError || new Error("All AI models failed. Please try again later.")
 }
 
-function buildFallbackInterviewReport({ resume = "", selfDescription = "", jobDescription = "" }) {
-    const combinedProfile = `${resume} ${selfDescription}`.toLowerCase()
-    const jdLower = jobDescription.toLowerCase()
 
-    // Extract title guess
-    const firstLine = jobDescription.trim().split("\n")[0].replace(/^#+\s*/, "").slice(0, 60)
-    const title = firstLine || "Target Technical Role"
-
-    // Detect key tech words in JD
-    const techKeywords = [
-        "react", "node", "javascript", "typescript", "python", "docker", "aws",
-        "kubernetes", "sql", "mongodb", "graphql", "rest", "ci/cd", "microservices",
-        "system design", "html", "css", "sass", "git", "express", "next.js"
-    ]
-
-    const matchedTech = techKeywords.filter(k => jdLower.includes(k) && combinedProfile.includes(k))
-    const missingTech = techKeywords.filter(k => jdLower.includes(k) && !combinedProfile.includes(k))
-
-    const baseScore = 70 + Math.min(22, matchedTech.length * 4) - Math.min(15, missingTech.length * 3)
-    const matchScore = Math.max(55, Math.min(96, Math.round(baseScore)))
-
-    const skillGaps = missingTech.slice(0, 4).map((tech, i) => ({
-        skill: tech.toUpperCase(),
-        severity: i === 0 ? "high" : i === 1 ? "medium" : "low"
-    }))
-
-    if (skillGaps.length === 0) {
-        skillGaps.push({ skill: "Advanced System Scalability", severity: "medium" })
-        skillGaps.push({ skill: "Domain-Specific Optimization", severity: "low" })
-    }
-
-    return {
-        title,
-        matchScore,
-        technicalQuestions: [
-            {
-                question: `How would you architect a scalable solution based on the core stack required for ${title}?`,
-                intention: "Evaluate high-level architectural reasoning, separation of concerns, and system reliability.",
-                answer: "Start with client/API interaction layer, discuss state management and API contracts, touch on caching, error boundaries, and database query optimization."
-            },
-            {
-                question: `Explain how you handle asynchronous state and error recovery in production workflows.`,
-                intention: "Determine if the candidate has practical experience handling real-world failures and edge cases.",
-                answer: "Discuss retry policies with exponential backoff, circuit breaker patterns, optimistic UI updates, and centralized error telemetry."
-            },
-            {
-                question: `What are your best practices for code maintainability, testing, and CI/CD pipelines?`,
-                intention: "Assess code quality standards and familiarity with team development workflows.",
-                answer: "Highlight automated linting, unit/integration testing with clear test boundaries, trunk-based or GitHub flow, and automated preview deployments."
-            }
-        ],
-        behavioralQuestions: [
-            {
-                question: "Describe a high-pressure situation where a critical bug reached production. How did you resolve it?",
-                intention: "Assess crisis management, communication, and post-mortem accountability.",
-                answer: "Use the STAR method: Situation (production incident), Task (mitigate user impact), Action (rollback, hotfix, alert stakeholders), Result (service restored, root-cause analysis and preventive test added)."
-            },
-            {
-                question: "Tell me about a time you disagreed with a technical decision made by a teammate or lead. How did you handle it?",
-                intention: "Evaluate collaborative conflict resolution and ego management.",
-                answer: "Focus on data-driven discussion: created a small prototype or benchmark to compare trade-offs, aligned on team business constraints, and committed fully to the final team decision."
-            }
-        ],
-        skillGaps,
-        preparationPlan: [
-            {
-                day: 1,
-                focus: "Core Fundamentals & Technical Requirements Review",
-                tasks: [
-                    "Deep-dive into core technologies and patterns outlined in the job description.",
-                    "Review past projects and prepare 2-minute elevator pitches for your top achievements."
-                ]
-            },
-            {
-                day: 2,
-                focus: "System Design & Architecture Deep Dive",
-                tasks: [
-                    "Diagram end-to-end data flow and API contracts for typical features required by the target company.",
-                    "Review caching, indexing, rate limiting, and security best practices."
-                ]
-            },
-            {
-                day: 3,
-                focus: "Behavioral Stories & Mock Interview Run-Through",
-                tasks: [
-                    "Prepare 4-5 STAR stories covering leadership, conflict resolution, technical hurdles, and deadline pressure.",
-                    "Practice answering common technical questions out loud with concise, structured responses."
-                ]
-            }
-        ]
-    }
-}
+// ── Main: Generate Interview Report via Gemini API ───────────────────────────
 
 async function generateInterviewReport({ resume, selfDescription, jobDescription }) {
-    const prompt = `Generate an interview report for a candidate with the following details:
-                        Resume: ${resume || "Not provided"}
-                        Self Description: ${selfDescription || "Not provided"}
-                        Job Description: ${jobDescription}
+    const prompt = `You are an expert technical interviewer and career strategist.
+
+Analyze the candidate's profile against the job description and generate a comprehensive, role-specific interview preparation report.
+
+═══════════════════════════════════════════════
+JOB DESCRIPTION:
+${jobDescription}
+═══════════════════════════════════════════════
+CANDIDATE RESUME:
+${resume || "Not provided"}
+═══════════════════════════════════════════════
+CANDIDATE SELF-DESCRIPTION:
+${selfDescription || "Not provided"}
+═══════════════════════════════════════════════
+
+INSTRUCTIONS:
+1. Extract the job title from the job description.
+2. Calculate a matchScore (0–100) comparing the candidate's skills to the job requirements.
+3. Identify specific skill gaps between the candidate and the job description.
+4. Generate 3–5 technical interview questions that an interviewer would actually ask for THIS specific role and tech stack. Include the interviewer's intention and a model answer strategy.
+5. Generate 2–3 behavioral questions relevant to the role's seniority and domain.
+6. Create a TAILORED 5-DAY PREPARATION PLAN (Day 1 through Day 5):
+   - Each day MUST have a UNIQUE, SPECIFIC focus directly related to the technologies and skills in the job description.
+   - Each day MUST have 2–4 concrete, actionable tasks.
+   - The plan must be DIFFERENT for different roles. For example:
+     * A React Frontend role should cover: component patterns, state management, performance/Web Vitals, testing, and mock interviews.
+     * A Python Backend role should cover: API design, database optimization, distributed systems, containerization, and system design practice.
+     * A DevOps role should cover: cloud architecture, Kubernetes, IaC/Terraform, observability, and incident response.
+   - Do NOT produce a generic plan. Tailor every day to the actual job description provided.
 `
 
-    try {
-        const response = await generateContentWithRetry({
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: zodToJsonSchema(interviewReportSchema),
-            }
-        })
+    const response = await generateContentWithRetry({
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: zodToJsonSchema(interviewReportSchema),
+        }
+    })
 
-        return JSON.parse(response.text)
-    } catch (err) {
-        console.warn("[AI Service] Gemini call failed, using intelligent profile analysis fallback:", err.message)
-        return buildFallbackInterviewReport({ resume, selfDescription, jobDescription })
+    const report = JSON.parse(response.text)
+
+    // Validate the response has the expected structure
+    if (!report.preparationPlan || !Array.isArray(report.preparationPlan)) {
+        throw new Error("AI response missing preparationPlan")
     }
+
+    if (!report.title) {
+        report.title = "Interview Preparation Report"
+    }
+
+    if (typeof report.matchScore !== "number") {
+        report.matchScore = 70
+    }
+
+    return report
 }
 
 
-
-const fs = require("fs")
+// ── PDF Generation (unchanged) ───────────────────────────────────────────────
 
 const { generateResumePdfBuffer } = require("./resumePdf.service")
 
@@ -226,8 +200,9 @@ async function generatePdfFromHtml(htmlContent) {
         }
     }
 
-    const browser = await puppeteer.launch(launchOptions)
-    const page = await browser.newPage();
+    const pptr = getPuppeteer()
+    const browser = await pptr.launch(launchOptions)
+    const page = await browser.newPage()
     await page.setContent(htmlContent, { waitUntil: "networkidle0" })
 
     const pdfBuffer = await page.pdf({
@@ -287,7 +262,8 @@ async function generateResumePdf({ resume, selfDescription, jobDescription, titl
         htmlContent = jsonContent.html
     } catch (err) {
         console.warn("[AI Service] Gemini resume generation failed:", err.message)
-        htmlContent = `<!DOCTYPE html><html><body><h1>Resume</h1><p>${sanitizeText(jobDescription)}</p></body></html>`
+        const safeJD = (jobDescription || "").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        htmlContent = `<!DOCTYPE html><html><body><h1>Resume</h1><p>${safeJD}</p></body></html>`
     }
 
     const pdfBuffer = await generatePdfFromHtml(htmlContent)
