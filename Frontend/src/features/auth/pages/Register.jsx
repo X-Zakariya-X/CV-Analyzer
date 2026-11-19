@@ -2,6 +2,7 @@ import React,{useState} from 'react'
 import { useNavigate, Link } from 'react-router'
 import "../auth.form.scss"
 import { useAuth } from '../hooks/useAuth'
+import AuthLoading from '../components/AuthLoading'
 
 const Register = () => {
 
@@ -18,8 +19,13 @@ const Register = () => {
         if (success) navigate("/")
     }
 
-    if(loading){
-        return (<main className="auth-page"><h1>Loading...</h1></main>)
+    if (loading) {
+        return (
+            <AuthLoading
+                title="Creating Account..."
+                subtitle="Setting up your profile and interview workspace..."
+            />
+        )
     }
 
     return (

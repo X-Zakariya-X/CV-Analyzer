@@ -121,8 +121,8 @@ const Interview = () => {
                     >
                         {downloadingResume ? (
                             <>
-                                <span style={{ display: "inline-block", width: "13px", height: "13px", border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.6s linear infinite", marginRight: "0.6rem" }}></span>
-                                Generating CV...
+                                <span className="button-spinner"></span>
+                                Generating Tailored CV...
                             </>
                         ) : (
                             <>

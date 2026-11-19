@@ -2,6 +2,7 @@ import React,{useState} from 'react'
 import { useNavigate, Link } from 'react-router'
 import "../auth.form.scss"
 import { useAuth } from '../hooks/useAuth'
+import AuthLoading from '../components/AuthLoading'
 
 const Login = () => {
 
@@ -17,8 +18,13 @@ const Login = () => {
         if (success) navigate('/')
     }
 
-    if(loading){
-        return (<main><h1>Loading.......</h1></main>)
+    if (loading) {
+        return (
+            <AuthLoading
+                title="Signing In..."
+                subtitle="Verifying your credentials and preparing your studio workspace..."
+            />
+        )
     }
 
 
@@ -53,7 +59,9 @@ const Login = () => {
                             required
                         />
                     </div>
-                    <button type="submit" className='button primary-button auth-btn'>Sign In</button>
+                    <button type="submit" className='button primary-button auth-btn' disabled={loading}>
+                        Sign In
+                    </button>
                 </form>
                 <div className="auth-footer">
                     Don't have an account? <Link to={"/register"}>Create an account</Link>

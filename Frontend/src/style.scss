@@ -1,5 +1,14 @@
 @use "./style/button.scss";
 
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
 :root {
     --bg-page: #FAF9F6;
     --bg-surface: #FFFFFF;

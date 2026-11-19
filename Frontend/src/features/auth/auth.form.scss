@@ -133,4 +133,127 @@ main.auth-page {
             }
         }
     }
+
+    /* ── Aesthetic Auth Loading Screen ── */
+    &.auth-loading-screen {
+        .auth-loading-card {
+            align-items: center;
+            text-align: center;
+            padding: 3.5rem 2.5rem;
+            gap: 1.5rem;
+        }
+
+        .aesthetic-loader {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0.75rem 0 0.25rem 0;
+        }
+
+        .aesthetic-orb {
+            position: relative;
+            width: 72px;
+            height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            &::before {
+                content: '';
+                position: absolute;
+                inset: -3px;
+                border-radius: 50%;
+                background: conic-gradient(from 0deg, transparent, #111111, transparent 75%);
+                animation: spinOrb 1.4s linear infinite;
+            }
+
+            .aesthetic-orb-core {
+                position: relative;
+                z-index: 1;
+                width: 60px;
+                height: 60px;
+                border-radius: 50%;
+                background: #ffffff;
+                border: 1px solid #E7E5E4;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+            }
+
+            .aesthetic-sparkle {
+                font-size: 1.35rem;
+                color: #111111;
+                line-height: 1;
+            }
+        }
+
+        .auth-loading-text {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+
+            .loading-headline {
+                font-family: var(--font-serif, 'Playfair Display', serif);
+                font-size: 1.55rem;
+                font-weight: 600;
+                color: #18181B;
+                letter-spacing: -0.01em;
+            }
+
+            .loading-desc {
+                font-size: 0.875rem;
+                color: #71717A;
+                line-height: 1.5;
+                max-width: 320px;
+            }
+        }
+
+        .loading-pulse-dots {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            justify-content: center;
+            margin-top: 0.25rem;
+
+            .dot {
+                width: 6px;
+                height: 6px;
+                background-color: #18181B;
+                border-radius: 50%;
+                display: inline-block;
+                animation: dotPulse 1.4s infinite ease-in-out both;
+
+                &.dot-1 {
+                    animation-delay: -0.32s;
+                }
+                &.dot-2 {
+                    animation-delay: -0.16s;
+                }
+                &.dot-3 {
+                    animation-delay: 0s;
+                }
+            }
+        }
+    }
+}
+
+@keyframes spinOrb {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes dotPulse {
+    0%, 80%, 100% {
+        transform: scale(0.6);
+        opacity: 0.35;
+    }
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
 }

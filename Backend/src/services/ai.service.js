@@ -174,9 +174,13 @@ INSTRUCTIONS:
 }
 
 
-// ── PDF Generation (unchanged) ───────────────────────────────────────────────
+// ── PDF Generation (Tailored AI Resume with Vector-Embedded Fonts) ──────────
 
-const { generateResumePdfBuffer } = require("./resumePdf.service")
+const {
+    resumeDataSchema,
+    renderResumeHtml,
+    extractFallbackResumeData
+} = require("./resumePdf.service")
 
 async function generatePdfFromHtml(htmlContent) {
     const launchOptions = {
@@ -185,7 +189,8 @@ async function generatePdfFromHtml(htmlContent) {
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
-            "--disable-gpu"
+            "--disable-gpu",
+            "--font-render-hinting=medium"
         ]
     }
     const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
@@ -193,61 +198,60 @@ async function generatePdfFromHtml(htmlContent) {
     if (process.env.PUPPETEER_EXECUTABLE_PATH) {
         launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH
     } else if (process.platform === "win32") {
-        if (fs.existsSync(edgePath)) {
-            launchOptions.executablePath = edgePath
-        } else if (fs.existsSync(chromePath)) {
+        if (fs.existsSync(chromePath)) {
             launchOptions.executablePath = chromePath
+        } else if (fs.existsSync(edgePath)) {
+            launchOptions.executablePath = edgePath
         }
     }
 
     const pptr = getPuppeteer()
     const browser = await pptr.launch(launchOptions)
-    const page = await browser.newPage()
-    await page.setContent(htmlContent, { waitUntil: "networkidle0" })
-
-    const pdfBuffer = await page.pdf({
-        format: "A4", margin: {
-            top: "20mm",
-            bottom: "20mm",
-            left: "15mm",
-            right: "15mm"
-        }
-    })
-
-    await browser.close()
-
-    return pdfBuffer
+    try {
+        const page = await browser.newPage()
+        await page.setContent(htmlContent, { waitUntil: [ "domcontentloaded", "load" ] })
+        const pdfBuffer = await page.pdf({
+            format: "A4",
+            printBackground: true,
+            margin: {
+                top: "10mm",
+                bottom: "10mm",
+                left: "15mm",
+                right: "15mm"
+            }
+        })
+        return pdfBuffer
+    } finally {
+        await browser.close()
+    }
 }
 
 async function generateResumePdf({ resume, selfDescription, jobDescription, title, candidateName }) {
-    // 1. First try native high-fidelity tailored PDF generator (instant & 100% reliable)
-    try {
-        const nativePdf = generateResumePdfBuffer({
-            resume,
-            selfDescription,
-            jobDescription,
-            title,
-            candidateName
-        })
-        if (nativePdf && nativePdf.length > 500) {
-            return nativePdf
-        }
-    } catch (nativeErr) {
-        console.warn("[PDF Service] Native PDF generator error, falling back to Puppeteer:", nativeErr.message)
-    }
+    const prompt = `You are an expert resume writer specializing in ATS-optimized LaTeX/Overleaf academic and tech resumes.
+Tailor the candidate's resume for the target job while preserving their authentic background, projects, education, and links.
 
-    // 2. Fallback to Puppeteer if needed
-    const resumePdfSchema = z.object({
-        html: z.string().describe("The HTML content of the resume which can be converted to PDF using any library like puppeteer")
-    })
+TARGET JOB DESCRIPTION:
+${jobDescription}
 
-    const prompt = `Generate resume for a candidate with the following details:
-                        Resume: ${resume}
-                        Self Description: ${selfDescription}
-                        Job Description: ${jobDescription}
+TARGET TITLE:
+${title || "Target Role"}
 
-                        the response should be a JSON object with a single field "html" which contains the HTML content of the resume which can be converted to PDF using any library like puppeteer.
-                    `
+CANDIDATE NAME:
+${candidateName && candidateName !== "Candidate" ? candidateName : "Extract real name from candidate resume or use Candidate"}
+
+CANDIDATE RESUME / PROFILE:
+${resume || "Not provided"}
+
+CANDIDATE SELF-DESCRIPTION:
+${selfDescription || "Not provided"}
+
+INSTRUCTIONS:
+1. Extract the candidate's exact full name (in UPPERCASE), contact info (LinkedIn, GitHub, Email, Mobile), education history, training, and projects.
+2. In the SKILLS section, categorize skills (e.g. Languages, Frameworks, Databases, Core CS, Developer Tools, Soft Skills) and front-load keywords that directly match the target job description.
+3. For each project, keep the real project name, links, and date. Refine and polish the 2-3 bullet points to highlight technical depth, measurable impact, and relevance to the target job description.
+4. Keep the real education (institution, degree, CGPA/percentage, dates), training, and certificates.
+5. Return strictly valid JSON conforming to the schema.
+`
 
     let htmlContent = ""
     try {
@@ -255,15 +259,21 @@ async function generateResumePdf({ resume, selfDescription, jobDescription, titl
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
-                responseSchema: zodToJsonSchema(resumePdfSchema),
+                responseSchema: zodToJsonSchema(resumeDataSchema),
             }
         })
-        const jsonContent = JSON.parse(response.text)
-        htmlContent = jsonContent.html
+        const resumeData = JSON.parse(response.text)
+        htmlContent = renderResumeHtml(resumeData)
     } catch (err) {
-        console.warn("[AI Service] Gemini resume generation failed:", err.message)
-        const safeJD = (jobDescription || "").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-        htmlContent = `<!DOCTYPE html><html><body><h1>Resume</h1><p>${safeJD}</p></body></html>`
+        console.warn("[AI Service] Gemini resume tailoring failed, using profile extractor:", err.message)
+        const fallbackData = extractFallbackResumeData({
+            resume,
+            selfDescription,
+            jobDescription,
+            title,
+            candidateName
+        })
+        htmlContent = renderResumeHtml(fallbackData)
     }
 
     const pdfBuffer = await generatePdfFromHtml(htmlContent)
