@@ -220,7 +220,7 @@ async function generatePdfFromHtml(htmlContent) {
                 right: "15mm"
             }
         })
-        return pdfBuffer
+        return Buffer.from(pdfBuffer)
     } finally {
         await browser.close()
     }

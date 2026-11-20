@@ -73,6 +73,12 @@ export const useInterview = () => {
                 throw new Error("Received empty PDF file from server")
             }
 
+            if (blobData.type && blobData.type.includes("application/json")) {
+                const text = await blobData.text()
+                const errJson = JSON.parse(text)
+                throw new Error(errJson.message || "Failed to generate CV")
+            }
+
             const url = window.URL.createObjectURL(new Blob([ blobData ], { type: "application/pdf" }))
             const link = document.createElement("a")
             link.href = url
@@ -88,7 +94,15 @@ export const useInterview = () => {
             return true
         } catch (error) {
             console.error("Resume download error:", error)
-            alert("Failed to download updated resume. Please try again.")
+            let msg = error.message || "Failed to download updated resume. Please try again."
+            if (error.response?.data instanceof Blob) {
+                try {
+                    const text = await error.response.data.text()
+                    const json = JSON.parse(text)
+                    if (json.message) msg = json.message
+                } catch (_) {}
+            }
+            alert(msg)
             return false
         } finally {
             setDownloadingResume(false)
